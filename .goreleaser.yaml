@@ -1,0 +1,97 @@
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: ha-sync
+    binary: ha-sync
+    buildmode: "c-shared"
+    flags:
+      - -tags=zig
+    ldflags:
+    - -s -w -X github.com/litesql/ha-sync/extension.version={{.Version}} -X github.com/litesql/ha-sync/extension.commit={{.Commit}} -X github.com/litesql/ha-sync/extension.date={{.Date}}
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target x86_64-linux-gnu
+
+  - id: ha-sync_linux_arm64
+    binary: ha-sync
+    buildmode: "c-shared"
+    flags:
+      - -tags=zig
+    ldflags:
+    - -s -w -X github.com/litesql/ha-sync/extension.version={{.Version}} -X github.com/litesql/ha-sync/extension.commit={{.Commit}} -X github.com/litesql/ha-sync/extension.date={{.Date}}
+    goos:
+      - linux
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target aarch64-linux-gnu
+
+  - id: ha-sync_windows
+    binary: ha-sync
+    buildmode: "c-shared"
+    flags:
+      - -tags=zig
+    ldflags:
+    - -s -w -X github.com/litesql/ha-sync/extension.version={{.Version}} -X github.com/litesql/ha-sync/extension.commit={{.Commit}} -X github.com/litesql/ha-sync/extension.date={{.Date}}
+    goos:
+      - windows
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target x86_64-windows
+
+  - id: ha-sync_darwin
+    binary: ha-sync
+    buildmode: "c-shared"
+    ldflags:
+    - -s -w -X github.com/litesql/ha-sync/extension.version={{.Version}} -X github.com/litesql/ha-sync/extension.commit={{.Commit}} -X github.com/litesql/ha-sync/extension.date={{.Date}}
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=1
+      - CC=o64-clang
+
+archives:
+  - id: ha-sync
+    formats: [tar.gz]
+    ids: [ha-sync, ha-sync_linux_arm64, ha-sync_windows, ha-sync_darwin]
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      ha-sync_v
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - none*
+
+changelog:
+  disable: true
+
+release:  
+  github:
+    owner: litesql
+    name: ha-sync
+
+  draft: false
