@@ -74,51 +74,43 @@ func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
 
 func (cs *ChangeSet) setTableColumns(conn *sqlite.Conn) error {
 	tableColumns := make(map[string][]string)
-	tableTypes := make(map[string][]string)
 	for i, change := range cs.Changes {
 		if len(change.Columns) > 0 {
 			continue
 		}
 		if _, ok := tableColumns[change.Table]; !ok {
-			columns, types, err := getTableColumnsAndTypes(conn, change.Table)
+			columns, err := getTableColumns(conn, change.Table)
 			if err != nil {
 				return fmt.Errorf("failed to get table columns from %q: %w", change.Table, err)
 			}
-			tableTypes[change.Table] = types
 			tableColumns[change.Table] = columns
 			cs.Changes[i].Columns = columns
 		} else {
 			cs.Changes[i].Columns = tableColumns[change.Table]
 		}
-		types := tableTypes[change.Table]
-		for j, ctype := range types {
-			if strings.Contains(ctype, "TEXT") || strings.Contains(ctype, "CHAR") ||
-				strings.Contains(ctype, "CLOB") || strings.Contains(ctype, "JSON") ||
-				strings.Contains(ctype, "DATE") || strings.Contains(ctype, "TIME") {
-				if len(change.OldValues) > 0 && j < len(change.OldValues) {
-					change.OldValues[j] = convert(change.OldValues[j])
-				}
-				if len(change.NewValues) > 0 && j < len(change.NewValues) {
-					change.NewValues[j] = convert(change.NewValues[j])
-				}
+		for j := range len(cs.Changes[i].Columns) {
+			if len(change.OldValues) > 0 && j < len(change.OldValues) {
+				change.OldValues[j] = convert(change.OldValues[j])
+			}
+			if len(change.NewValues) > 0 && j < len(change.NewValues) {
+				change.NewValues[j] = convert(change.NewValues[j])
 			}
 		}
 	}
 	return nil
 }
 
-func getTableColumnsAndTypes(conn *sqlite.Conn, table string) ([]string, []string, error) {
-	var columns, types []string
-	err := conn.Exec("SELECT name, type FROM PRAGMA_table_info(?)", func(stmt *sqlite.Stmt) error {
+func getTableColumns(conn *sqlite.Conn, table string) ([]string, error) {
+	var columns []string
+	err := conn.Exec("SELECT name FROM PRAGMA_table_info(?)", func(stmt *sqlite.Stmt) error {
 		columns = append(columns, stmt.GetText("name"))
-		types = append(types, stmt.GetText("type"))
 		return nil
 	}, table)
 
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return columns, types, nil
+	return columns, nil
 }
 
 func placeholders(n int) string {
@@ -132,15 +124,8 @@ func placeholders(n int) string {
 	return strings.TrimRight(b.String(), ",")
 }
 
-func convert(src any) string {
+func convert(src any) any {
 	switch v := src.(type) {
-	case []byte:
-		var dst []byte
-		n, err := base64.StdEncoding.Decode(dst, v)
-		if err != nil {
-			return string(v)
-		}
-		return string(dst[0:n])
 	case string:
 		dst, err := base64.StdEncoding.DecodeString(v)
 		if err != nil {
@@ -148,7 +133,7 @@ func convert(src any) string {
 		}
 		return string(dst)
 	default:
-		return fmt.Sprintf("%s", src)
+		return v
 	}
 
 }

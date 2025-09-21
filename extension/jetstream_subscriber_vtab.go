@@ -35,6 +35,7 @@ type consumer struct {
 
 	stream  string
 	durable string
+	policy  string
 }
 
 func NewJetStreamSubscriberVirtualTable(virtualTableName string, servers string, opts []nats.Option, timeout time.Duration, conn *sqlite.Conn, loggerDef string) (*JetStreamSubscriberVirtualTable, error) {
@@ -48,13 +49,17 @@ func NewJetStreamSubscriberVirtualTable(virtualTableName string, servers string,
 	if servers != "" {
 		opts = append(opts,
 			nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
-				logger.Error("Got disconnected!", "reason", err)
+				if err != nil {
+					logger.Error("Got disconnected!", "reason", err)
+				}
 			}),
 			nats.ReconnectHandler(func(nc *nats.Conn) {
 				logger.Info("Got reconnected!", "url", nc.ConnectedUrl())
 			}),
 			nats.ClosedHandler(func(nc *nats.Conn) {
-				logger.Error("Connection closed.", "reason", nc.LastError())
+				if err := nc.LastError(); err != nil {
+					logger.Error("Connection closed.", "reason", err)
+				}
 			}))
 		nc, err := nats.Connect(servers, opts...)
 		if err != nil {
@@ -118,10 +123,11 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 	if stream == "" {
 		return 0, fmt.Errorf("stream is invalid")
 	}
-	var durable, policy string
+	var durable string
 	if len(values) > 1 {
 		durable = values[1].Text()
 	}
+	policy := "all"
 	if len(values) > 2 {
 		policy = values[2].Text()
 	}
@@ -167,6 +173,7 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 		cc:      cc,
 		stream:  stream,
 		durable: durable,
+		policy:  policy,
 	})
 	return 1, nil
 }
@@ -260,6 +267,8 @@ func (c *jetstreamSubscriptionsCursor) Column(ctx *sqlite.VirtualTableContext, i
 		ctx.ResultText(c.current.stream)
 	case 1:
 		ctx.ResultText(c.current.durable)
+	case 2:
+		ctx.ResultText(c.current.policy)
 	}
 
 	return nil
