@@ -1,7 +1,6 @@
 package extension
 
 import (
-	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -30,12 +29,7 @@ func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
 		return nil
 	}
 
-	err := cs.setTableColumns(conn)
-	if err != nil {
-		return err
-	}
-
-	err = conn.Exec("BEGIN", nil)
+	err := conn.Exec("BEGIN", nil)
 	if err != nil {
 		return err
 	}
@@ -72,47 +66,6 @@ func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
 	return conn.Exec("COMMIT", nil)
 }
 
-func (cs *ChangeSet) setTableColumns(conn *sqlite.Conn) error {
-	tableColumns := make(map[string][]string)
-	for i, change := range cs.Changes {
-		if len(change.Columns) > 0 {
-			continue
-		}
-		if _, ok := tableColumns[change.Table]; !ok {
-			columns, err := getTableColumns(conn, change.Table)
-			if err != nil {
-				return fmt.Errorf("failed to get table columns from %q: %w", change.Table, err)
-			}
-			tableColumns[change.Table] = columns
-			cs.Changes[i].Columns = columns
-		} else {
-			cs.Changes[i].Columns = tableColumns[change.Table]
-		}
-		for j := range len(cs.Changes[i].Columns) {
-			if len(change.OldValues) > 0 && j < len(change.OldValues) {
-				change.OldValues[j] = convert(change.OldValues[j])
-			}
-			if len(change.NewValues) > 0 && j < len(change.NewValues) {
-				change.NewValues[j] = convert(change.NewValues[j])
-			}
-		}
-	}
-	return nil
-}
-
-func getTableColumns(conn *sqlite.Conn, table string) ([]string, error) {
-	var columns []string
-	err := conn.Exec("SELECT name FROM PRAGMA_table_info(?)", func(stmt *sqlite.Stmt) error {
-		columns = append(columns, stmt.GetText("name"))
-		return nil
-	}, table)
-
-	if err != nil {
-		return nil, err
-	}
-	return columns, nil
-}
-
 func placeholders(n int) string {
 	if n <= 0 {
 		return ""
@@ -122,18 +75,4 @@ func placeholders(n int) string {
 		b.WriteString(fmt.Sprintf("?%d,", i+1))
 	}
 	return strings.TrimRight(b.String(), ",")
-}
-
-func convert(src any) any {
-	switch v := src.(type) {
-	case string:
-		dst, err := base64.StdEncoding.DecodeString(v)
-		if err != nil {
-			return v
-		}
-		return string(dst)
-	default:
-		return v
-	}
-
 }
