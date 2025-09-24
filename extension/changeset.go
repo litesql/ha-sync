@@ -9,19 +9,22 @@ import (
 
 type ChangeSet struct {
 	Node      string   `json:"node"`
+	ProcessID int64    `json:"process_id"`
 	Changes   []Change `json:"changes"`
 	Timestamp int64    `json:"timestamp_ns"`
 }
 
 type Change struct {
-	Database  string   `json:"database"`
-	Table     string   `json:"table"`
-	Columns   []string `json:"columns"`
-	Operation string   `json:"operation"` // "INSERT", "UPDATE", "DELETE"
+	Database  string   `json:"database,omitempty"`
+	Table     string   `json:"table,omitempty"`
+	Columns   []string `json:"columns,omitempty"`
+	Operation string   `json:"operation"` // "INSERT", "UPDATE", "DELETE", "SQL"
 	OldRowID  int64    `json:"old_rowid,omitempty"`
 	NewRowID  int64    `json:"new_rowid,omitempty"`
 	OldValues []any    `json:"old_values,omitempty"`
 	NewValues []any    `json:"new_values,omitempty"`
+	SQL       string   `json:"sql,omitempty"`
+	SQLArgs   []any    `json:"sql_args,omitempty"`
 }
 
 func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
@@ -55,11 +58,13 @@ func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
 		case "DELETE":
 			sql = fmt.Sprintf("DELETE FROM %s.%s WHERE rowid = ?", change.Database, change.Table)
 			err = conn.Exec(sql, nil, change.OldRowID)
+		case "SQL":
+			err = conn.Exec(change.SQL, nil, change.SQLArgs...)
 		default:
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("failed to apply change on %q: %w", change.Table, err)
+			return fmt.Errorf("failed to apply %q change on %q: %w", change.Operation, change.Table, err)
 		}
 	}
 

@@ -22,7 +22,7 @@ go build -ldflags="-s -w" -buildmode=c-shared -o ha-sync.so
 ### Loading the extension
 
 ```sh
-sqlite3 mydatabase.db
+sqlite3
 
 # Load the extension
 .load ./ha-sync
