@@ -34,8 +34,16 @@ SELECT ha_info();
 ### Create a virtual table to start replication
 
 ```sql
-CREATE VIRTUAL TABLE temp.ha USING HA(servers='nats://localhost:4222', timeout=5000, logger=stdout);
+CREATE VIRTUAL TABLE temp.ha USING HA(servers='nats://localhost:4222', timeout=5000, logger='file:ha-sync.log');
 
 -- Insert the stream name into the created virtual table to start replication
 INSERT INTO temp.ha(stream, durable) VALUES('ha_replication', 'my_instance');
+```
+
+### Change Deliver Policy
+
+```sql
+DELETE FROM temp.ha WHERE durable = 'my_instance';
+
+INSERT INTO temp.ha(stream, durable, policy) VALUES('ha_replication', 'my_instance', 'by_start_sequence=42');
 ```

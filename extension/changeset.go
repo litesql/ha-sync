@@ -12,6 +12,7 @@ type ChangeSet struct {
 	ProcessID int64    `json:"process_id"`
 	Changes   []Change `json:"changes"`
 	Timestamp int64    `json:"timestamp_ns"`
+	StreamSeq uint64   `json:"-"`
 }
 
 type Change struct {
@@ -59,12 +60,13 @@ func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
 			sql = fmt.Sprintf("DELETE FROM %s.%s WHERE rowid = ?", change.Database, change.Table)
 			err = conn.Exec(sql, nil, change.OldRowID)
 		case "SQL":
+			sql = change.SQL
 			err = conn.Exec(change.SQL, nil, change.SQLArgs...)
 		default:
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("failed to apply %q change on %q: %w", change.Operation, change.Table, err)
+			return fmt.Errorf("failed to exec %q: %w", sql, err)
 		}
 	}
 

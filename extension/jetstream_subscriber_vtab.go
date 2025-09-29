@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -136,14 +137,6 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 	if vt.contains(stream) {
 		return 0, fmt.Errorf("already subscribed to the %q stream", stream)
 	}
-	var (
-		ctx    = context.Background()
-		cancel func()
-	)
-	if vt.timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, vt.timeout)
-		defer cancel()
-	}
 
 	cfg := jetstream.ConsumerConfig{
 		AckPolicy:     jetstream.AckExplicitPolicy,
@@ -161,6 +154,14 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 		cfg.OptStartTime = dp.startTime
 	}
 
+	var (
+		ctx    = context.Background()
+		cancel func()
+	)
+	if vt.timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, vt.timeout)
+		defer cancel()
+	}
 	c, err := vt.js.CreateOrUpdateConsumer(ctx, stream, cfg)
 	if err != nil {
 		return 0, fmt.Errorf("failed to subscribe: %w", err)
@@ -196,6 +197,18 @@ func (vt *JetStreamSubscriberVirtualTable) Delete(v sqlite.Value) error {
 	if index >= 0 && index < len(vt.consumers) {
 		subscription := vt.consumers[index]
 		subscription.cc.Stop()
+		var (
+			ctx    = context.Background()
+			cancel func()
+		)
+		if vt.timeout > 0 {
+			ctx, cancel = context.WithTimeout(ctx, vt.timeout)
+			defer cancel()
+		}
+		err := vt.js.DeleteConsumer(ctx, subscription.stream, subscription.durable)
+		if err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) {
+			return err
+		}
 		vt.consumers = slices.Delete(vt.consumers, index, index+1)
 	}
 	return nil
@@ -213,22 +226,28 @@ func (vt *JetStreamSubscriberVirtualTable) contains(stream string) bool {
 func (vt *JetStreamSubscriberVirtualTable) messageHandler(msg jetstream.Msg) {
 	vt.stmtMu.Lock()
 	defer vt.stmtMu.Unlock()
+	meta, err := msg.Metadata()
+	if err != nil {
+		vt.logger.Error("failed to get message metadata", "error", err, "subject", msg.Subject())
+		return
+	}
 
 	var cs ChangeSet
-	err := json.Unmarshal(msg.Data(), &cs)
+	cs.StreamSeq = meta.Sequence.Stream
+	err = json.Unmarshal(msg.Data(), &cs)
 	if err != nil {
-		vt.logger.Error("failed to unmarshal CDC message", "error", err, "subject", msg.Subject())
+		vt.logger.Error("failed to unmarshal CDC message", "error", err, "subject", msg.Subject(), "stream_seq", cs.StreamSeq)
 		msg.Ack()
 		return
 	}
 
 	if err := cs.Apply(vt.conn); err != nil {
-		vt.logger.Error("failed to apply CDC message", "error", err, "subject", msg.Subject())
+		vt.logger.Error("failed to apply CDC message", "error", err, "subject", msg.Subject(), "stream_seq", cs.StreamSeq)
 		return
 	}
 
 	if err := msg.Ack(); err != nil {
-		vt.logger.Error("failed to ack CDC message", "error", err, "subject", msg.Subject())
+		vt.logger.Error("failed to ack CDC message", "error", err, "subject", msg.Subject(), "stream_seq", cs.StreamSeq)
 		return
 	}
 }
