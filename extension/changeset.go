@@ -24,8 +24,8 @@ type Change struct {
 	NewRowID  int64    `json:"new_rowid,omitempty"`
 	OldValues []any    `json:"old_values,omitempty"`
 	NewValues []any    `json:"new_values,omitempty"`
-	SQL       string   `json:"sql,omitempty"`
-	SQLArgs   []any    `json:"sql_args,omitempty"`
+	Command   string   `json:"command,omitempty"`
+	Args      []any    `json:"args,omitempty"`
 }
 
 func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
@@ -60,8 +60,8 @@ func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
 			sql = fmt.Sprintf("DELETE FROM %s.%s WHERE rowid = ?", change.Database, change.Table)
 			err = conn.Exec(sql, nil, change.OldRowID)
 		case "SQL":
-			sql = change.SQL
-			err = conn.Exec(change.SQL, nil, change.SQLArgs...)
+			sql = change.Command
+			err = conn.Exec(sql, nil, change.Args...)
 		default:
 			continue
 		}

@@ -1,9 +1,9 @@
 module github.com/litesql/ha-sync
 
-go 1.24
+go 1.25
 
 require (
-	github.com/nats-io/nats.go v1.45.0
+	github.com/nats-io/nats.go v1.46.1
 	github.com/walterwanderley/sqlite v0.0.0-20250807085442-1c89b916e683
 )
 
