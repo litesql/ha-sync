@@ -38,6 +38,8 @@ func (m *JetStreamSubscriberModule) Connect(conn *sqlite.Conn, args []string, de
 		caFilePath      string
 		insecure        bool
 
+		rowIdentify string
+
 		logger string
 		err    error
 	)
@@ -79,6 +81,13 @@ func (m *JetStreamSubscriberModule) Connect(conn *sqlite.Conn, args []string, de
 				if err != nil {
 					return nil, fmt.Errorf("invalid %q option: %v", k, err)
 				}
+			case config.RowIdentify:
+				switch v {
+				case "rowid", "full":
+				default:
+					return nil, fmt.Errorf("invalid %q option. Use rowid or full", k)
+				}
+				rowIdentify = v
 			case config.Logger:
 				logger = v
 			}
@@ -117,11 +126,25 @@ func (m *JetStreamSubscriberModule) Connect(conn *sqlite.Conn, args []string, de
 		opts = append(opts, nats.UserInfo(username, password))
 	}
 
-	vtab, err := NewJetStreamSubscriberVirtualTable(virtualTableName, servers, opts, timeout, conn, logger)
+	if rowIdentify == "" {
+		rowIdentify = "rowid"
+	}
+
+	err = conn.Exec(
+		`CREATE TABLE IF NOT EXISTS ha_stats(
+	subject TEXT UNIQUE,
+	received_seq INTEGER,
+	updated_at DATETIME
+)`, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating ha_stats table: %w", err)
+	}
+
+	vtab, err := NewJetStreamSubscriberVirtualTable(virtualTableName, servers, opts, timeout, rowIdentify, conn, logger)
 	if err != nil {
 		return nil, err
 	}
-	return vtab, declare("CREATE TABLE x(stream TEXT, durable TEXT, policy TEXT)")
+	return vtab, declare("CREATE TABLE x(subject TEXT, durable TEXT, policy TEXT)")
 }
 
 func sanitizeOptionValue(v string) string {

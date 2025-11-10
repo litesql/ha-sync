@@ -12,6 +12,7 @@ const (
 	CertKeyFile = "cert_key_file" // TLS: path to .pem certificate key file
 	CertCAFile  = "ca_file"       // TLS: path to CA certificate file
 	Insecure    = "insecure"      // TLS: Insecure skip TLS verification
+	RowIdentify = "row_identify"  // Strategy used to identify rows during replication. Options: rowid or full
 	Logger      = "logger"        // Log errors to "stdout, stderr or file:/path/to/log.txt"
 
 	DefaultReplicationVTabName = "ha"

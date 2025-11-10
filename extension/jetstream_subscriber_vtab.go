@@ -34,12 +34,12 @@ type JetStreamSubscriberVirtualTable struct {
 type consumer struct {
 	cc jetstream.ConsumeContext
 
-	stream  string
+	subject string
 	durable string
 	policy  string
 }
 
-func NewJetStreamSubscriberVirtualTable(virtualTableName string, servers string, opts []nats.Option, timeout time.Duration, conn *sqlite.Conn, loggerDef string) (*JetStreamSubscriberVirtualTable, error) {
+func NewJetStreamSubscriberVirtualTable(virtualTableName string, servers string, opts []nats.Option, timeout time.Duration, rowIdentify string, conn *sqlite.Conn, loggerDef string) (*JetStreamSubscriberVirtualTable, error) {
 
 	logger, loggerCloser, err := loggerFromConfig(loggerDef)
 	if err != nil {
@@ -121,28 +121,29 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 	if vt.js == nil {
 		return 0, fmt.Errorf("not connected to jetstream")
 	}
-	stream := values[0].Text()
-	if stream == "" {
-		return 0, fmt.Errorf("stream is invalid")
+	subject := values[0].Text()
+	if subject == "" {
+		return 0, fmt.Errorf("subject is invalid")
 	}
 	var durable string
 	if len(values) > 1 {
 		durable = values[1].Text()
 	}
-	policy := "all"
+	var policy string
 	if len(values) > 2 {
 		policy = values[2].Text()
 	}
 	vt.mu.Lock()
 	defer vt.mu.Unlock()
-	if vt.contains(stream) {
-		return 0, fmt.Errorf("already subscribed to the %q stream", stream)
+	if vt.contains(subject) {
+		return 0, fmt.Errorf("already subscribed to the %q subject", subject)
 	}
 
 	cfg := jetstream.ConsumerConfig{
 		AckPolicy:     jetstream.AckExplicitPolicy,
-		FilterSubject: stream,
+		FilterSubject: subject,
 		Durable:       durable,
+		MaxAckPending: 1,
 	}
 
 	if policy != "" {
@@ -153,6 +154,28 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 		cfg.DeliverPolicy = dp.deliverPolicy
 		cfg.OptStartSeq = dp.startSeq
 		cfg.OptStartTime = dp.startTime
+	} else {
+		var seq uint64
+		err := vt.conn.Exec("SELECT received_seq FROM ha_stats WHERE subject = ? LIMIT 1", func(stmt *sqlite.Stmt) error {
+			hasRow, err := stmt.Step()
+			if err != nil {
+				return err
+			}
+			if !hasRow {
+				return nil
+			}
+			seq = uint64(stmt.GetInt64("received_seq"))
+			return nil
+		}, subject)
+		if err != nil {
+			return 0, err
+		}
+		if seq > 0 {
+			cfg.DeliverPolicy = jetstream.DeliverByStartSequencePolicy
+			cfg.OptStartSeq = seq
+		} else {
+			cfg.DeliverPolicy = jetstream.DeliverAllPolicy
+		}
 	}
 
 	var (
@@ -162,6 +185,10 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 	if vt.timeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, vt.timeout)
 		defer cancel()
+	}
+	stream := subject
+	if i := strings.Index(subject, "."); i > 0 {
+		stream = subject[0:i]
 	}
 	c, err := vt.js.CreateOrUpdateConsumer(ctx, stream, cfg)
 	if err != nil {
@@ -173,7 +200,7 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 	}
 	vt.consumers = append(vt.consumers, consumer{
 		cc:      cc,
-		stream:  stream,
+		subject: subject,
 		durable: durable,
 		policy:  policy,
 	})
@@ -206,7 +233,7 @@ func (vt *JetStreamSubscriberVirtualTable) Delete(v sqlite.Value) error {
 			ctx, cancel = context.WithTimeout(ctx, vt.timeout)
 			defer cancel()
 		}
-		err := vt.js.DeleteConsumer(ctx, subscription.stream, subscription.durable)
+		err := vt.js.DeleteConsumer(ctx, subscription.subject, subscription.durable)
 		if err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) {
 			return err
 		}
@@ -215,9 +242,9 @@ func (vt *JetStreamSubscriberVirtualTable) Delete(v sqlite.Value) error {
 	return nil
 }
 
-func (vt *JetStreamSubscriberVirtualTable) contains(stream string) bool {
+func (vt *JetStreamSubscriberVirtualTable) contains(subject string) bool {
 	for _, consumer := range vt.consumers {
-		if consumer.stream == stream {
+		if consumer.subject == subject {
 			return true
 		}
 	}
@@ -235,6 +262,7 @@ func (vt *JetStreamSubscriberVirtualTable) messageHandler(msg jetstream.Msg) {
 
 	var cs ChangeSet
 	cs.StreamSeq = meta.Sequence.Stream
+	cs.Subject = msg.Subject()
 	err = json.Unmarshal(msg.Data(), &cs)
 	if err != nil {
 		vt.logger.Error("failed to unmarshal CDC message", "error", err, "subject", msg.Subject(), "stream_seq", cs.StreamSeq)
@@ -261,7 +289,7 @@ type jetstreamSubscriptionsCursor struct {
 
 func newJetStreamSubscriptionsCursor(data []consumer) *jetstreamSubscriptionsCursor {
 	slices.SortFunc(data, func(a, b consumer) int {
-		return cmp.Compare(a.stream, b.stream)
+		return cmp.Compare(a.subject, b.subject)
 	})
 	return &jetstreamSubscriptionsCursor{
 		data: data,
@@ -284,7 +312,7 @@ func (c *jetstreamSubscriptionsCursor) Next() error {
 func (c *jetstreamSubscriptionsCursor) Column(ctx *sqlite.VirtualTableContext, i int) error {
 	switch i {
 	case 0:
-		ctx.ResultText(c.current.stream)
+		ctx.ResultText(c.current.subject)
 	case 1:
 		ctx.ResultText(c.current.durable)
 	case 2:

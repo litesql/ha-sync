@@ -36,8 +36,8 @@ SELECT ha_info();
 ```sql
 CREATE VIRTUAL TABLE temp.ha USING HA(servers='nats://localhost:4222', timeout=5000, logger='file:ha-sync.log');
 
--- Insert the stream name into the created virtual table to start replication
-INSERT INTO temp.ha(stream, durable) VALUES('ha_replication', 'my_instance');
+-- Insert the subject name into the created virtual table to start replication
+INSERT INTO temp.ha(subject, durable) VALUES('ha_replication.ha_db', 'my_instance');
 ```
 
 ### Change Deliver Policy
@@ -45,5 +45,5 @@ INSERT INTO temp.ha(stream, durable) VALUES('ha_replication', 'my_instance');
 ```sql
 DELETE FROM temp.ha WHERE durable = 'my_instance';
 
-INSERT INTO temp.ha(stream, durable, policy) VALUES('ha_replication', 'my_instance', 'by_start_sequence=42');
+INSERT INTO temp.ha(subject, durable, policy) VALUES('ha_replication.ha_db', 'my_instance', 'by_start_sequence=42');
 ```

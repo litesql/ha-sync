@@ -3,6 +3,7 @@ package extension
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/walterwanderley/sqlite"
 )
@@ -13,6 +14,7 @@ type ChangeSet struct {
 	Changes   []Change `json:"changes"`
 	Timestamp int64    `json:"timestamp_ns"`
 	StreamSeq uint64   `json:"-"`
+	Subject   string   `json:"-"`
 }
 
 type Change struct {
@@ -68,6 +70,10 @@ func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
 		if err != nil {
 			return fmt.Errorf("failed to exec %q: %w", sql, err)
 		}
+	}
+	err = conn.Exec("REPLACE INTO ha_stats(subject, received_seq, updated_at) VALUES(?, ?, ?)", nil, cs.Subject, cs.StreamSeq, time.Now().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("failed to update ha_stats: %v", err)
 	}
 
 	return conn.Exec("COMMIT", nil)
