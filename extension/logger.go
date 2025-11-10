@@ -29,6 +29,7 @@ func loggerFromConfig(option string) (*slog.Logger, io.Closer, error) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("opening/creating file %q: %w", filename, err)
 		}
+		w = file
 		closer = file
 	}
 	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
