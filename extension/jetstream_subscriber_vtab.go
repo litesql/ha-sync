@@ -61,7 +61,8 @@ func NewJetStreamSubscriberVirtualTable(virtualTableName string, servers string,
 				if err := nc.LastError(); err != nil {
 					logger.Error("Connection closed.", "reason", err)
 				}
-			}))
+			}),
+			nats.MaxReconnects(-1))
 		nc, err := nats.Connect(servers, opts...)
 		if err != nil {
 			if loggerCloser != nil {

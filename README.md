@@ -9,7 +9,7 @@ Here's a great article that explains [how to install the SQLite extension.](http
 
 ### Compiling from source
 
-- [Go 1.24+](https://go.dev) and CGO_ENABLED=1 is required.
+- [Go 1.25+](https://go.dev) and CGO_ENABLED=1 is required.
 
 ```sh
 go build -ldflags="-s -w" -buildmode=c-shared -o ha-sync.so
