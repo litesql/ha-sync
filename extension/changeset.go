@@ -30,7 +30,7 @@ type Change struct {
 	Args      []any    `json:"args,omitempty"`
 }
 
-func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
+func (cs *ChangeSet) Apply(conn *sqlite.Conn, rowStrategy string) error {
 	if len(cs.Changes) == 0 {
 		return nil
 	}
@@ -40,35 +40,75 @@ func (cs *ChangeSet) Apply(conn *sqlite.Conn) error {
 		return err
 	}
 	defer conn.Exec("ROLLBACK", nil)
-	for _, change := range cs.Changes {
-		var sql string
-		switch change.Operation {
-		case "INSERT":
-			setClause := make([]string, len(change.Columns))
-			for i, col := range change.Columns {
-				setClause[i] = fmt.Sprintf("%s = ?%d", col, i+1)
+	if rowStrategy == "full" {
+		for _, change := range cs.Changes {
+			var (
+				err error
+				sql string
+			)
+			switch change.Operation {
+			case "INSERT":
+				sql = fmt.Sprintf("REPLACE INTO %s.%s (%s) VALUES (%s)", change.Database, change.Table, strings.Join(change.Columns, ", "), placeholders(len(change.NewValues)))
+				err = conn.Exec(sql, nil, change.NewValues...)
+			case "UPDATE":
+				setClause := make([]string, len(change.Columns))
+				for i, col := range change.Columns {
+					setClause[i] = fmt.Sprintf("%s = ?", col)
+				}
+				sql = fmt.Sprintf("UPDATE %s.%s SET %s WHERE %s", change.Database, change.Table, strings.Join(setClause, ", "), strings.Join(setClause, " AND "))
+				args := append(change.NewValues, change.OldValues...)
+				err = conn.Exec(sql, nil, args...)
+			case "DELETE":
+				whereClause := make([]string, len(change.Columns))
+				for i, col := range change.Columns {
+					whereClause[i] = fmt.Sprintf("%s = ?", col)
+				}
+				sql = fmt.Sprintf("DELETE FROM %s.%s WHERE %s", change.Database, change.Table, strings.Join(whereClause, " AND "))
+				err = conn.Exec(sql, nil, change.OldValues...)
+			case "SQL":
+				sql = change.Command
+				err = conn.Exec(sql, nil, change.Args...)
+			default:
+				continue
 			}
-			sql = fmt.Sprintf("INSERT INTO %s.%s (%s, rowid) VALUES (%s) ON CONFLICT (rowid) DO UPDATE SET %s", change.Database, change.Table, strings.Join(change.Columns, ", "), placeholders(len(change.NewValues)+1), strings.Join(setClause, ", "))
-			err = conn.Exec(sql, nil, append(change.NewValues, change.NewRowID)...)
-		case "UPDATE":
-			setClause := make([]string, len(change.Columns))
-			for i, col := range change.Columns {
-				setClause[i] = fmt.Sprintf("%s = ?", col)
+			if err != nil {
+				return fmt.Errorf("failed to exec %q: %w", sql, err)
 			}
-			sql = fmt.Sprintf("UPDATE %s.%s SET %s WHERE rowid = ?", change.Database, change.Table, strings.Join(setClause, ", "))
-			args := append(change.NewValues, change.OldRowID)
-			err = conn.Exec(sql, nil, args...)
-		case "DELETE":
-			sql = fmt.Sprintf("DELETE FROM %s.%s WHERE rowid = ?", change.Database, change.Table)
-			err = conn.Exec(sql, nil, change.OldRowID)
-		case "SQL":
-			sql = change.Command
-			err = conn.Exec(sql, nil, change.Args...)
-		default:
-			continue
 		}
-		if err != nil {
-			return fmt.Errorf("failed to exec %q: %w", sql, err)
+	} else {
+		for _, change := range cs.Changes {
+			var (
+				err error
+				sql string
+			)
+			switch change.Operation {
+			case "INSERT":
+				setClause := make([]string, len(change.Columns))
+				for i, col := range change.Columns {
+					setClause[i] = fmt.Sprintf("%s = ?%d", col, i+1)
+				}
+				sql = fmt.Sprintf("INSERT INTO %s.%s (%s, rowid) VALUES (%s) ON CONFLICT DO UPDATE SET %s, rowid = ?%d;", change.Database, change.Table, strings.Join(change.Columns, ", "), placeholders(len(change.NewValues)+1), strings.Join(setClause, ", "), len(change.NewValues)+1)
+				err = conn.Exec(sql, nil, append(change.NewValues, change.NewRowID)...)
+			case "UPDATE":
+				setClause := make([]string, len(change.Columns))
+				for i, col := range change.Columns {
+					setClause[i] = fmt.Sprintf("%s = ?", col)
+				}
+				sql = fmt.Sprintf("UPDATE %s.%s SET %s WHERE rowid = ?;", change.Database, change.Table, strings.Join(setClause, ", "))
+				args := append(change.NewValues, change.OldRowID)
+				err = conn.Exec(sql, nil, args...)
+			case "DELETE":
+				sql = fmt.Sprintf("DELETE FROM %s.%s WHERE rowid = ?;", change.Database, change.Table)
+				err = conn.Exec(sql, nil, change.OldRowID)
+			case "SQL":
+				sql = change.Command
+				err = conn.Exec(sql, nil, change.Args...)
+			default:
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("failed to exec %q: %w", sql, err)
+			}
 		}
 	}
 	err = conn.Exec("REPLACE INTO ha_stats(subject, received_seq, updated_at) VALUES(?, ?, ?)", nil, cs.Subject, cs.StreamSeq, time.Now().Format(time.RFC3339))

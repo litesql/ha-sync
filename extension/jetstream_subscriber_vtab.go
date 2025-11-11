@@ -27,6 +27,7 @@ type JetStreamSubscriberVirtualTable struct {
 	consumers        []consumer
 	stmtMu           sync.Mutex
 	mu               sync.Mutex
+	rowIdentify      string
 	logger           *slog.Logger
 	loggerCloser     io.Closer
 }
@@ -84,6 +85,7 @@ func NewJetStreamSubscriberVirtualTable(virtualTableName string, servers string,
 		conn:             conn,
 		js:               js,
 		timeout:          timeout,
+		rowIdentify:      rowIdentify,
 		logger:           logger,
 		loggerCloser:     loggerCloser,
 		consumers:        make([]consumer, 0),
@@ -157,13 +159,6 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 	} else {
 		var seq uint64
 		err := vt.conn.Exec("SELECT received_seq FROM ha_stats WHERE subject = ? LIMIT 1", func(stmt *sqlite.Stmt) error {
-			hasRow, err := stmt.Step()
-			if err != nil {
-				return err
-			}
-			if !hasRow {
-				return nil
-			}
 			seq = uint64(stmt.GetInt64("received_seq"))
 			return nil
 		}, subject)
@@ -192,7 +187,7 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 	}
 	c, err := vt.js.CreateOrUpdateConsumer(ctx, stream, cfg)
 	if err != nil {
-		return 0, fmt.Errorf("failed to subscribe: %w", err)
+		return 0, fmt.Errorf("failed to subscribe %T: %w", err, err)
 	}
 	cc, err := c.Consume(vt.messageHandler)
 	if err != nil {
@@ -270,7 +265,7 @@ func (vt *JetStreamSubscriberVirtualTable) messageHandler(msg jetstream.Msg) {
 		return
 	}
 
-	if err := cs.Apply(vt.conn); err != nil {
+	if err := cs.Apply(vt.conn, vt.rowIdentify); err != nil {
 		vt.logger.Error("failed to apply CDC message", "error", err, "subject", msg.Subject(), "stream_seq", cs.StreamSeq)
 		return
 	}
