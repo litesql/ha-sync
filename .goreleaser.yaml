@@ -52,6 +52,21 @@ builds:
       - CGO_ENABLED=1
       - CC=zig cc -target x86_64-windows
 
+  - id: ha-sync_windows_arm64
+    binary: ha-sync
+    buildmode: "c-shared"
+    flags:
+      - -tags=zig
+    ldflags:
+    - -s -w -X github.com/litesql/ha-sync/extension.version={{.Version}} -X github.com/litesql/ha-sync/extension.commit={{.Commit}} -X github.com/litesql/ha-sync/extension.date={{.Date}}
+    goos:
+      - windows
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target aarch64-windows
+
   - id: ha-sync_darwin
     binary: ha-sync
     buildmode: "c-shared"
@@ -69,7 +84,7 @@ builds:
 archives:
   - id: ha-sync
     formats: [tar.gz]
-    ids: [ha-sync, ha-sync_linux_arm64, ha-sync_windows, ha-sync_darwin]
+    ids: [ha-sync, ha-sync_linux_arm64, ha-sync_windows, ha-sync_windows_arm64, ha-sync_darwin]
     # this name template makes the OS and Arch compatible with the results of `uname`.
     name_template: >-
       ha-sync_v
