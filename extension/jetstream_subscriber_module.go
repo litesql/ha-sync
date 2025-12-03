@@ -83,9 +83,9 @@ func (m *JetStreamSubscriberModule) Connect(conn *sqlite.Conn, args []string, de
 				}
 			case config.RowIdentify:
 				switch v {
-				case "rowid", "full":
+				case "pk", "rowid", "full":
 				default:
-					return nil, fmt.Errorf("invalid %q option. Use rowid or full", k)
+					return nil, fmt.Errorf("invalid %q option. Use pk, rowid or full", k)
 				}
 				rowIdentify = v
 			case config.Logger:
@@ -127,7 +127,7 @@ func (m *JetStreamSubscriberModule) Connect(conn *sqlite.Conn, args []string, de
 	}
 
 	if rowIdentify == "" {
-		rowIdentify = "rowid"
+		rowIdentify = "pk"
 	}
 
 	err = conn.Exec(
