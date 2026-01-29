@@ -148,6 +148,7 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 		MaxAckPending: 1,
 	}
 
+	var loadSeqBydb bool
 	if policy != "" {
 		dp, err := getDeliverPolicy(policy)
 		if err != nil {
@@ -166,6 +167,7 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 			return 0, err
 		}
 		if seq > 0 {
+			loadSeqBydb = true
 			cfg.DeliverPolicy = jetstream.DeliverByStartSequencePolicy
 			cfg.OptStartSeq = seq
 		} else {
@@ -187,7 +189,16 @@ func (vt *JetStreamSubscriberVirtualTable) Insert(values ...sqlite.Value) (int64
 	}
 	c, err := vt.js.CreateOrUpdateConsumer(ctx, stream, cfg)
 	if err != nil {
-		return 0, fmt.Errorf("failed to subscribe %T: %w", err, err)
+		vt.logger.Debug("failed to create or update consumer: %v", err)
+		if !loadSeqBydb {
+			return 0, fmt.Errorf("failed to create or update consumer: %w", err)
+		}
+		var err2 error
+		vt.logger.Debug("trying to get existing consumer")
+		c, err2 = vt.js.Consumer(ctx, stream, cfg.Durable)
+		if err2 != nil {
+			return 0, errors.Join(err, fmt.Errorf("failed to get existing consumer: %w", err2))
+		}
 	}
 	cc, err := c.Consume(vt.messageHandler)
 	if err != nil {
