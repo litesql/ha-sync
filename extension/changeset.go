@@ -114,19 +114,34 @@ func (cs *ChangeSet) Apply(conn *sqlite.Conn, rowStrategy string) error {
 				err = conn.Exec(sql, nil, change.NewValues...)
 			case "UPDATE":
 				setClause := make([]string, len(change.Columns))
+				whereClause := make([]string, len(change.Columns))
+				var args []any
+				args = append(args, change.NewValues...)
 				for i, col := range change.Columns {
 					setClause[i] = fmt.Sprintf("%s = ?", col)
+					if change.OldValues[i] == nil {
+						whereClause[i] = fmt.Sprintf("%s IS NULL", col)
+					} else {
+						whereClause[i] = fmt.Sprintf("%s = ?", col)
+						args = append(args, change.OldValues[i])
+					}
 				}
-				sql = fmt.Sprintf("UPDATE %s.%s SET %s WHERE %s", change.Database, change.Table, strings.Join(setClause, ", "), strings.Join(setClause, " AND "))
-				args := append(change.NewValues, change.OldValues...)
+
+				sql = fmt.Sprintf("UPDATE %s.%s SET %s WHERE %s", change.Database, change.Table, strings.Join(setClause, ", "), strings.Join(whereClause, " AND "))
 				err = conn.Exec(sql, nil, args...)
 			case "DELETE":
 				whereClause := make([]string, len(change.Columns))
+				var args []any
 				for i, col := range change.Columns {
-					whereClause[i] = fmt.Sprintf("%s = ?", col)
+					if change.OldValues[i] == nil {
+						whereClause[i] = fmt.Sprintf("%s IS NULL", col)
+					} else {
+						whereClause[i] = fmt.Sprintf("%s = ?", col)
+						args = append(args, change.OldValues[i])
+					}
 				}
 				sql = fmt.Sprintf("DELETE FROM %s.%s WHERE %s", change.Database, change.Table, strings.Join(whereClause, " AND "))
-				err = conn.Exec(sql, nil, change.OldValues...)
+				err = conn.Exec(sql, nil, args...)
 			case "SQL":
 				sql = change.Command
 				err = conn.Exec(sql, nil, change.Args...)
